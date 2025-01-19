@@ -44,6 +44,271 @@ import os
 import re
 
 import requests
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import requests
+
+# Replace with your bot token
+BOT_TOKEN = "7521219669:AAFa59OWXbGQoVTwSvi3I7pwn71Y6K1gL3k"
+
+# Class and Batch data for each year
+YEAR_CLASSES = {
+    "2024-25": {
+        "11th": {
+            "VIJAY 2.0": "119",
+            "VIJAY 3.0":"98",
+            "VIJAY 4.0": "_",
+            "VIJAY 5.0": "_",
+           
+        },
+
+        "Test Series & Crash Coursh": {
+            "Test Series": "124",
+            "Victory 1.0 (PCM)": "123",
+            "Adv Ranker (PCM)": "94",
+        },
+
+        "12th": {
+            "Vijeta 2.0 (Chem Spl)": "89",
+            "Vijeta 4.0 (PCM)": "99",
+        },
+        "13th": {
+            "Vishesh 2.0 (PCM)": "100",
+            "Vishesh 3.0 (PCM)": "108",
+            "Vishesh 4.0 (PCM)": "114",
+            "Vishesh 5.0 (PCM)": "117",
+        }
+    },
+    "2025-26": {
+        "11th": {
+            "Backlog Silver Chem": "131",
+            "Vijeta 1.0 Gold (11+12) Chem": "132",
+            "Vijeta 1.0 Silver (11+12) Chem": "133",
+            "Vijeta 1.0 Diamond (11+12) Chem": "134",
+        },
+        "12th": {
+            "Vijeta 1.0 Silver Chem": "125",
+            "Vijeta 1.0 Silver (PCM)":"126",
+            "Vijeta 1.0 Gold Chem": "127",
+            "Vijeta 1.0 Gold (PCM)": "128",
+            "Vijeta 1.0 Diamond Chem": "129",
+            "Vijeta 1.0 Diamond (PCM)": "130",
+            "Vijeta 1.0 Gold (11+12) Chem": "132",
+            "Vijeta 1.0 Silver (11+12) Chem": "133",
+            "Vijeta 1.0 Diamond (11+12) Chem": "134",
+        },
+        "13th": {
+            "Arjun": "_",
+            "Arjun 2.0": "_",
+            "Arjun 3.0": "_",
+        },
+    },
+}
+
+# Mapping of user IDs to indexes
+USER_ID_TO_IDX = {
+    "5034929962": 1,
+    "7587316405": 2,
+}
+
+# Function to fetch Subjects for a batch
+def fetch_subjects(batch_id):
+    url = f"https://spec.iitschool.com/api/v1/batch-subject/{batch_id}"
+    headers = {
+        "Accept": "application/json",
+        "origintype": "web",
+        "token": "f4a169bed85c01eae1d80052d7abe1d350fd5597",
+        "usertype": "2",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("responseCode") == 200:
+            return data["data"].get("batch_subject", [])
+    return []
+
+# Function to fetch Topics for a subject
+def fetch_topics(batch_id, subject_id):
+    url = f"https://spec.iitschool.com/api/v1/batch-topic/{subject_id}?type=class"
+    headers = {
+        "Accept": "application/json",
+        "origintype": "web",
+        "token": "f4a169bed85c01eae1d80052d7abe1d350fd5597",
+        "usertype": "2",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:  # Ensure consistent indentation here
+        data = response.json()
+        if data.get("responseCode") == 200:
+            return data["data"].get("batch_topic", [])
+    return 
+
+# Function to fetch Lessons for a subject and topic
+def fetch_lessons(batch_id, subject_id, topic_id):
+    url = f"https://spec.iitschool.com/api/v1/batch-detail/{batch_id}?subjectId={subject_id}&topicId={topic_id}"
+    headers = {
+        "Accept": "application/json",
+        "origintype": "web",
+        "token": "f4a169bed85c01eae1d80052d7abe1d350fd5597",
+        "usertype": "2",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("responseCode") == 200:
+            return data["data"].get("class_list", {}).get("classes", [])
+    return []
+
+# Function to fetch Notes for a subject and topic
+def fetch_notes(batch_id, subject_id, topic_id):
+    url = f"https://spec.iitschool.com/api/v1/batch-notes/{batch_id}?subjectId={subject_id}&topicId={topic_id}"
+    headers = {
+        "Accept": "application/json",
+        "origintype": "web",
+        "token": "f4a169bed85c01eae1d80052d7abe1d350fd5597",
+        "usertype": "2",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("responseCode") == 200:
+            return data["data"].get("notesDetails", [])
+    return []
+
+# Start command handler
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+    idx = USER_ID_TO_IDX.get(user_id)
+    if idx is None:
+        await update.message.reply_text("You are not a member of the channel. Please join the channel to proceed.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("2024-25", callback_data="year_2024-25")],
+        [InlineKeyboardButton("2025-26", callback_data="year_2025-26")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Welcome! Select your academic year:", reply_markup=reply_markup)
+
+# Callback for button interactions
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    user_id = str(query.from_user.id)
+    idx = USER_ID_TO_IDX.get(user_id)
+    if idx is None:
+        await query.edit_message_text("You are not a member of the channel. Please join the channel to proceed.")
+        return
+
+    if data.startswith("year_"):
+        year = data.split("_")[1]
+        keyboard = [
+            [InlineKeyboardButton("11th", callback_data=f"class_{year}_11th")],
+            [InlineKeyboardButton("12th", callback_data=f"class_{year}_12th")],
+            [InlineKeyboardButton("13th", callback_data=f"class_{year}_13th")],
+            [InlineKeyboardButton("Test Series & Crash Coursh", callback_data=f"class_{year}_Test Series & Crash Coursh")],
+            
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(f"Select your class for {year}", reply_markup=reply_markup)
+
+    elif data.startswith("class_"):
+        _, year, class_name = data.split("_")
+        batches = YEAR_CLASSES.get(year, {}).get(class_name, {})
+        keyboard = [
+            [InlineKeyboardButton(name, callback_data=f"batch_{batch_id}")]
+            for name, batch_id in batches.items()
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("Select a batch:", reply_markup=reply_markup)
+
+    elif data.startswith("batch_"):
+        batch_id = data.split("_")[1]
+        subjects = fetch_subjects(batch_id)
+        if subjects:
+            keyboard = [
+                [InlineKeyboardButton(subject["subjectName"], callback_data=f"subject_{batch_id}_{subject['id']}")]
+                for subject in subjects
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("Select a subject:", reply_markup=reply_markup)
+        else:
+            await query.edit_message_text("No subjects found for this batch.")
+
+    elif data.startswith("subject_"):
+        _, batch_id, subject_id = data.split("_")
+        topics = fetch_topics(batch_id, subject_id)
+        if topics:
+            keyboard = [
+                [InlineKeyboardButton(topic["topicName"], callback_data=f"topic_{batch_id}_{subject_id}_{topic['id']}")]
+                for topic in topics
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("Select a topic:", reply_markup=reply_markup)
+        else:
+            await query.edit_message_text("No topics found for this subject.")
+
+    elif data.startswith("topic_"):
+        _, batch_id, subject_id, topic_id = data.split("_")
+        lessons = fetch_lessons(batch_id, subject_id, topic_id)
+        notes = fetch_notes(batch_id, subject_id, topic_id)
+
+        if lessons or notes:
+            keyboard = [
+                [InlineKeyboardButton(lesson["lessonName"], url=f"https://vercelsop.vercel.app/{idx}/{lesson['id']}")]
+                for lesson in lessons
+            ]
+            if notes:
+                keyboard.append([
+                    InlineKeyboardButton("Notes", callback_data=f"notes_{batch_id}_{subject_id}_{topic_id}")
+                ])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("Select a lesson or view notes:", reply_markup=reply_markup)
+        else:
+            await query.edit_message_text("No lessons or notes available.")
+
+    elif data.startswith("notes_"):
+        _, batch_id, subject_id, topic_id = data.split("_")
+        notes = fetch_notes(batch_id, subject_id, topic_id)
+        if notes:
+            notes_message = "\n\n".join([
+                f"{note['docTitle']} - {note['docUrl']}" for note in notes
+            ])
+            await query.edit_message_text(f"Available Notes:\n\n{notes_message}")
+        else:
+            await query.edit_message_text("No notes available.")
+
+# Main function
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 bot = Client(
     "CW",
     bot_token=os.environ.get("BOT_TOKEN"),
